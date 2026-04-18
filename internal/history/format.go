@@ -40,3 +40,13 @@ func PrintEntry(e *Entry, w io.Writer) {
 		}
 	}
 }
+
+// PrintLast writes detailed info for the most recent Entry in h to w.
+// If there are no entries, it prints a message indicating no history exists.
+func PrintLast(h *History, w io.Writer) {
+	if len(h.Entries) == 0 {
+		fmt.Fprintln(w, "no history recorded")
+		return
+	}
+	PrintEntry(&h.Entries[len(h.Entries)-1], w)
+}
