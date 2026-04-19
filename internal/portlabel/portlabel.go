@@ -65,6 +65,13 @@ func (l *Labeler) All() []Label {
 	return out
 }
 
+// Len returns the number of labels currently stored.
+func (l *Labeler) Len() int {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return len(l.labels)
+}
+
 func key(port int, proto string) string {
 	return fmt.Sprintf("%d/%s", port, proto)
 }
