@@ -29,3 +29,12 @@ func ApplyFlags(dst *Config, src Config) {
 	}
 	dst.Enabled = src.Enabled
 }
+
+// Validate checks that the Config is valid, returning an error if not.
+// A Config is invalid if audit logging is enabled but no path is specified.
+func (c Config) Validate() error {
+	if c.Enabled && c.Path == "" {
+		return fmt.Errorf("audit: log path must not be empty when audit logging is enabled")
+	}
+	return nil
+}
