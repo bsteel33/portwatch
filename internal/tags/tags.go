@@ -58,6 +58,21 @@ func (t *Tagger) Add(port int, proto, label string) {
 	t.tags = append(t.tags, Tag{Port: port, Proto: strings.ToLower(proto), Label: label})
 }
 
+// Remove deletes all tags matching the given port and proto.
+// Returns true if at least one tag was removed.
+func (t *Tagger) Remove(port int, proto string) bool {
+	proto = strings.ToLower(proto)
+	filtered := t.tags[:0]
+	for _, tag := range t.tags {
+		if !(tag.Port == port && strings.ToLower(tag.Proto) == proto) {
+			filtered = append(filtered, tag)
+		}
+	}
+	removed := len(filtered) < len(t.tags)
+	t.tags = filtered
+	return removed
+}
+
 // Save writes the current tag set to path as JSON.
 func (t *Tagger) Save(path string) error {
 	f, err := os.Create(path)
