@@ -72,3 +72,23 @@ func (l *Limiter) Remaining() int {
 	}
 	return remaining
 }
+
+// RetryAfter returns the duration until at least one additional event is allowed.
+// If events are currently allowed, it returns 0.
+func (l *Limiter) RetryAfter() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if len(l.timestamps) < l.config.MaxEvents {
+		return 0
+	}
+
+	now := l.now()
+	// The oldest timestamp in the window determines when a slot frees up.
+	oldest := l.timestamps[0]
+	retryAt := oldest.Add(l.config.Window)
+	if retryAt.Before(now) {
+		return 0
+	}
+	return retryAt.Sub(now)
+}
