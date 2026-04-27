@@ -46,8 +46,12 @@ func ParseRule(s string) (Rule, error) {
 		}
 	}
 	if port != "*" {
-		if _, err := strconv.Atoi(port); err != nil {
+		n, err := strconv.Atoi(port)
+		if err != nil {
 			return Rule{}, fmt.Errorf("portmatch: invalid port %q in rule %q", port, s)
+		}
+		if n < 1 || n > 65535 {
+			return Rule{}, fmt.Errorf("portmatch: port %d out of range [1, 65535] in rule %q", n, s)
 		}
 	}
 	return Rule{Port: port, Proto: proto}, nil
