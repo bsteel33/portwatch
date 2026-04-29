@@ -14,91 +14,111 @@ func tempPath(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "portage.json")
 }
 
-var fixed = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-
-func newTracker(t *testing.T) *Tracker {
+func newTracker(t *testing.T, now func() time.Time) *Tracker {
 	t.Helper()
-	tr, err := New(tempPath(t))
+	tr, err := New(tempPath(t), now)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	tr.now = func() time.Time { return fixed }
 	return tr
 }
 
+var (
+	t0 = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 = t0.Add(5 * time.Minute)
+)
+
 func TestUpdate_RecordsFirstSeen(t *testing.T) {
-	tr := newTracker(t)
+	tr := newTracker(t, func() time.Time { return t0 })
 	ports := []scanner.Port{{Port: 80, Proto: "tcp"}}
-	tr.Update(ports)
-	e, ok := tr.Get(80, "tcp")
-	if !ok {
-		t.Fatal("expected entry for port 80")
+	if err := tr.Update(ports); err != nil {
+		t.Fatalf("Update: %v", err)
 	}
-	if !e.FirstSeen.Equal(fixed) {
-		t.Errorf("FirstSeen = %v, want %v", e.FirstSeen, fixed)
+	e := tr.Get(ports[0])
+	if e == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if !e.FirstSeen.Equal(t0) {
+		t.Errorf("FirstSeen = %v, want %v", e.FirstSeen, t0)
 	}
 }
 
 func TestUpdate_DoesNotOverwriteFirstSeen(t *testing.T) {
-	tr := newTracker(t)
+	clock := t0
+	tr := newTracker(t, func() time.Time { return clock })
 	ports := []scanner.Port{{Port: 443, Proto: "tcp"}}
-	tr.Update(ports)
-	later := fixed.Add(time.Hour)
-	tr.now = func() time.Time { return later }
-	tr.Update(ports)
-	e, _ := tr.Get(443, "tcp")
-	if !e.FirstSeen.Equal(fixed) {
-		t.Errorf("FirstSeen overwritten: got %v, want %v", e.FirstSeen, fixed)
+	_ = tr.Update(ports)
+	clock = t1
+	_ = tr.Update(ports)
+	e := tr.Get(ports[0])
+	if !e.FirstSeen.Equal(t0) {
+		t.Errorf("FirstSeen overwritten: got %v, want %v", e.FirstSeen, t0)
+	}
+	if !e.LastSeen.Equal(t1) {
+		t.Errorf("LastSeen = %v, want %v", e.LastSeen, t1)
 	}
 }
 
 func TestUpdate_EvictsClosedPort(t *testing.T) {
-	tr := newTracker(t)
-	tr.Update([]scanner.Port{{Port: 22, Proto: "tcp"}})
-	tr.Update([]scanner.Port{})
-	if _, ok := tr.Get(22, "tcp"); ok {
-		t.Error("expected port 22 to be evicted")
+	tr := newTracker(t, func() time.Time { return t0 })
+	p := scanner.Port{Port: 22, Proto: "tcp"}
+	_ = tr.Update([]scanner.Port{p})
+	_ = tr.Update([]scanner.Port{})
+	if tr.Get(p) != nil {
+		t.Error("expected eviction, entry still present")
 	}
 }
 
-func TestSaveAndLoad(t *testing.T) {
-	path := tempPath(t)
-	tr, _ := New(path)
-	tr.now = func() time.Time { return fixed }
-	tr.Update([]scanner.Port{{Port: 8080, Proto: "tcp"}})
-	if err := tr.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	tr2, err := New(path)
-	if err != nil {
-		t.Fatalf("New (reload): %v", err)
-	}
-	e, ok := tr2.Get(8080, "tcp")
+func TestAge_ReturnsElapsed(t *testing.T) {
+	clock := t0
+	tr := newTracker(t, func() time.Time { return clock })
+	p := scanner.Port{Port: 8080, Proto: "tcp"}
+	_ = tr.Update([]scanner.Port{p})
+	clock = t0.Add(10 * time.Minute)
+	age, ok := tr.Age(p)
 	if !ok {
-		t.Fatal("entry missing after reload")
+		t.Fatal("expected age, got not-found")
 	}
-	if !e.FirstSeen.Equal(fixed) {
-		t.Errorf("FirstSeen = %v, want %v", e.FirstSeen, fixed)
+	if age != 10*time.Minute {
+		t.Errorf("Age = %v, want 10m", age)
 	}
 }
 
 func TestNew_MissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.json")
-	tr, err := New(path)
+	tr, err := New(path, nil)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error for missing file: %v", err)
 	}
 	if tr == nil {
 		t.Fatal("expected non-nil tracker")
 	}
 }
 
-func TestAge(t *testing.T) {
-	e := Entry{FirstSeen: fixed}
-	got := e.Age(fixed.Add(2 * time.Hour))
-	if got != 2*time.Hour {
-		t.Errorf("Age = %v, want 2h", got)
+func TestPersistence(t *testing.T) {
+	path := tempPath(t)
+	tr, _ := New(path, func() time.Time { return t0 })
+	p := scanner.Port{Port: 3306, Proto: "tcp"}
+	_ = tr.Update([]scanner.Port{p})
+
+	tr2, err := New(path, func() time.Time { return t1 })
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	e := tr2.Get(p)
+	if e == nil {
+		t.Fatal("entry missing after reload")
+	}
+	if !e.FirstSeen.Equal(t0) {
+		t.Errorf("FirstSeen after reload = %v, want %v", e.FirstSeen, t0)
 	}
 }
 
-func init() { _ = os.Stderr }
+func TestNew_CorruptFile(t *testing.T) {
+	path := tempPath(t)
+	_ = os.WriteFile(path, []byte("not json{"), 0o644)
+	_, err := New(path, nil)
+	if err == nil {
+		t.Fatal("expected error for corrupt file")
+	}
+}
