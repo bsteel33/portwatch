@@ -62,6 +62,12 @@ func (r *Report) renderText() error {
 }
 
 func (r *Report) renderJSON() error {
+	if r.Diff == nil {
+		return fmt.Errorf("report: cannot render JSON: diff is nil")
+	}
+	if r.Snapshot == nil {
+		return fmt.Errorf("report: cannot render JSON: snapshot is nil")
+	}
 	enc := jsonEncoder(r.Writer)
 	return enc.Encode(map[string]interface{}{
 		"timestamp": r.Timestamp.Format(time.RFC3339),
