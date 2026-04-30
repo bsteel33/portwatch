@@ -3,6 +3,7 @@ package baseline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -33,22 +34,25 @@ func (m *Manager) Save(ports []scanner.Port) error {
 	}
 	f, err := os.Create(m.path)
 	if err != nil {
-		return err
+		return fmt.Errorf("baseline: create %q: %w", m.path, err)
 	}
 	defer f.Close()
-	return json.NewEncoder(f).Encode(b)
+	if err := json.NewEncoder(f).Encode(b); err != nil {
+		return fmt.Errorf("baseline: encode: %w", err)
+	}
+	return nil
 }
 
 // Load reads the baseline from disk.
 func (m *Manager) Load() (*Baseline, error) {
 	f, err := os.Open(m.path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("baseline: open %q: %w", m.path, err)
 	}
 	defer f.Close()
 	var b Baseline
 	if err := json.NewDecoder(f).Decode(&b); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("baseline: decode %q: %w", m.path, err)
 	}
 	return &b, nil
 }
