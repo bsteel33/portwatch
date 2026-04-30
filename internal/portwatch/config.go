@@ -1,47 +1,71 @@
 package portwatch
 
 import (
+	"errors"
 	"flag"
+	"strings"
 	"time"
 )
 
-// RegisterFlags registers Watcher flags onto fs.
-func RegisterFlags(fs *flag.FlagSet, cfg *Config) {
-	fs.StringVar(&cfg.SnapshotPath, "snapshot", cfg.SnapshotPath, "path to snapshot file")
-	fs.StringVar(&cfg.Protocol, "proto", cfg.Protocol, "protocol to scan (tcp/udp)")
-	fs.DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "per-port dial timeout")
+// Rule describes a single watch condition.
+type Rule struct {
+	Name    string
+	Port    int
+	Proto   string
+	Timeout time.Duration
 }
 
-// ApplyFlags copies non-zero values from src into dst.
+// Config holds watcher configuration.
+type Config struct {
+	SnapshotPath string
+	Timeout      time.Duration
+	Proto        string
+}
+
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		SnapshotPath: "portwatch.json",
+		Timeout:      5 * time.Second,
+		Proto:        "tcp",
+	}
+}
+
+// RegisterFlags registers config flags on fs.
+func RegisterFlags(fs *flag.FlagSet, cfg *Config) {
+	fs.StringVar(&cfg.SnapshotPath, "portwatch.snapshot", cfg.SnapshotPath, "snapshot file path")
+	fs.DurationVar(&cfg.Timeout, "portwatch.timeout", cfg.Timeout, "per-port connection timeout")
+	fs.StringVar(&cfg.Proto, "portwatch.proto", cfg.Proto, "default protocol filter (tcp/udp)")
+}
+
+// ApplyFlags copies non-zero flag values from src into dst.
 func ApplyFlags(dst *Config, src Config) {
 	if src.SnapshotPath != "" {
 		dst.SnapshotPath = src.SnapshotPath
 	}
-	if src.Protocol != "" {
-		dst.Protocol = src.Protocol
-	}
 	if src.Timeout > 0 {
 		dst.Timeout = src.Timeout
 	}
+	if src.Proto != "" {
+		dst.Proto = src.Proto
+	}
 }
 
-// Validate returns an error string if cfg is invalid, or empty string if ok.
-func Validate(cfg Config) string {
+// Validate returns an error if cfg is invalid.
+func Validate(cfg Config) error {
 	if cfg.SnapshotPath == "" {
-		return "snapshot path must not be empty"
+		return errors.New("portwatch: snapshot path must not be empty")
 	}
-	if cfg.Protocol != "tcp" && cfg.Protocol != "udp" {
-		return "protocol must be tcp or udp"
+	p := strings.ToLower(cfg.Proto)
+	if p != "tcp" && p != "udp" && p != "" {
+		return errors.New("portwatch: proto must be tcp or udp")
 	}
-	if cfg.Timeout <= 0 {
-		return "timeout must be positive"
-	}
-	return ""
+	return clampTimeout(cfg)
 }
 
-// clampTimeout ensures timeout does not exceed max.
-func clampTimeout(cfg *Config, max time.Duration) {
-	if cfg.Timeout > max {
-		cfg.Timeout = max
+func clampTimeout(cfg Config) error {
+	if cfg.Timeout < 0 {
+		return errors.New("portwatch: timeout must be non-negative")
 	}
+	return nil
 }
